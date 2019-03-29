@@ -174,7 +174,7 @@ namespace MisCritAz.Messaging
                 value = ImmutableList<SampleMessage>.Empty;
             }
 
-            messageData.Receiver = receiver.ClientId;
+            messageData.Receiver = receiver == _primaryMessageReceiver ? "PrimaryReceiver" : "SecondaryReceiver";
             value = value.Add(messageData);
             _cache.Set("CacheKey", value);
 

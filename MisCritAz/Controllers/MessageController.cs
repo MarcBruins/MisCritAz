@@ -46,7 +46,7 @@ namespace MisCritAz.Controllers
             if (value == null) return BadRequest(new { error = "Request body missing" });
             try
             {
-                await _messageSender.ProcessMessageImpl(new SampleMessage
+                await _messageSender.SendMessage(new SampleMessage
                 {
                     Body = value.Body ?? "empty"
                 });
@@ -55,7 +55,7 @@ namespace MisCritAz.Controllers
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Failed to save blob");
+                _logger?.LogError(ex, "Failed to send message");
             }
 
             return StatusCode((int)HttpStatusCode.InternalServerError, new { error = "Failed to send message." });

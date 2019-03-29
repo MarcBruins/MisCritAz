@@ -31,7 +31,7 @@ namespace MisCritAz
             services.AddSingleton<IServiceBusMessageSender>(sp =>
             {
                 var sender = new MultiServiceBusMessageSender(sp.GetRequiredService<IOptions<ServiceBusConnectionSettings>>());
-                sender.Initialize().ConfigureAwait(false).GetAwaiter().GetResult();
+                sender.Initialize();
                 return sender;
             });
 

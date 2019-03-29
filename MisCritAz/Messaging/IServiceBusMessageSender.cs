@@ -8,11 +8,11 @@ namespace MisCritAz.Messaging
         /// <summary>
         /// Sends a message to a service bus topic.
         /// </summary>
-        Task ProcessMessageImpl(SampleMessage message);
+        Task SendMessage(SampleMessage message);
 
         /// <summary>
         /// Prepares instance for use.
         /// </summary>
-        Task Initialize();
+        void Initialize();
     }
 }

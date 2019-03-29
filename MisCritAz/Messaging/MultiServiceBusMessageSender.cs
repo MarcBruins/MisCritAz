@@ -1,13 +1,13 @@
 ﻿using Microsoft.Azure.ServiceBus;
 using Microsoft.Azure.ServiceBus.Core;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Polly;
 using Polly.CircuitBreaker;
 using System;
 using System.Text;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 
 namespace MisCritAz.Messaging
 {
@@ -18,7 +18,7 @@ namespace MisCritAz.Messaging
     {
         private readonly ILogger<MultiServiceBusMessageSender> _logger;
         private const int ExceptionsAllowedBeforeBreaking = 1;
-        private const int TimeOutIfBreaksInMinutes = 5;
+        private const int TimeOutIfBreaksInMilliseconds = 10_000;
 
         protected TopicClient PrimaryClient { get; private set; }
         protected TopicClient SecondaryClient { get; private set; }
@@ -35,7 +35,8 @@ namespace MisCritAz.Messaging
         {
             if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.Value.PrimaryServiceBusConnectionStringForSend))
                 throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.Value.PrimaryServiceBusConnectionStringForSend)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
-
+            if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.Value.SecondaryServiceBusConnectionStringForSend))
+                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.Value.SecondaryServiceBusConnectionStringForSend)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
             if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.Value.ServiceBusTopic))
                 throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.Value.ServiceBusTopic)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
             _logger = logger;
@@ -49,32 +50,23 @@ namespace MisCritAz.Messaging
 
 
         /// <inheritdoc />
-        public Task ProcessMessageImpl(SampleMessage message)
+        public Task SendMessage(SampleMessage message)
         {
-            if (SecondaryClient != null)
-            {
-                var policyWrap = Policy.Handle<Exception>()
-                    .FallbackAsync(cts => ProcessMessageForClient(SecondaryClient, message))
-                    .WrapAsync(_circuitBreaker);
+            var policyWrap = Policy.Handle<Exception>()
+                .FallbackAsync(cts => ProcessMessageForClient(SecondaryClient, message))
+                .WrapAsync(_circuitBreaker);
 
-                return policyWrap.ExecuteAsync(() => ProcessMessageForClient(PrimaryClient, message));
-            }
-
-            return ProcessMessageForClient(PrimaryClient, message);
+            return policyWrap.ExecuteAsync(() => ProcessMessageForClient(PrimaryClient, message));
         }
 
         /// <inheritdoc />
-        public Task Initialize()
+        public void Initialize()
         {
-            if (PrimaryClient == null)
-            {
-                PrimaryClient = CreateClient(_primaryServiceBusConnectionString);
+            if (PrimaryClient != null)
+                return;
 
-                if (SecondaryClient == null && !string.IsNullOrEmpty(_secondaryServiceBusConnectionString))
-                    SecondaryClient = CreateClient(_secondaryServiceBusConnectionString);
-            }
-
-            return Task.CompletedTask;
+            PrimaryClient = CreateClient(_primaryServiceBusConnectionString);
+            SecondaryClient = CreateClient(_secondaryServiceBusConnectionString);
         }
 
         /// <summary>
@@ -92,11 +84,12 @@ namespace MisCritAz.Messaging
         /// <returns></returns>
         private async Task ProcessMessageForClient(ISenderClient client, SampleMessage message)
         {
-            message.Sender = client.ClientId;
+            //Close the PrimaryClient object to see an exception that causes fail-over (PrimaryClient.CloseAsync().ConfigureAwait(false).GetAwaiter().GetResult(); in watch)
+            message.Sender = client == PrimaryClient ? "PrimaryClient" : "SecondaryClient";
             string json = JsonConvert.SerializeObject(message);
             var brokeredMessage = new Message(Encoding.UTF8.GetBytes(json));
             brokeredMessage.UserProperties.Add("Type", message.GetType().Name);
-            
+
             await client.SendAsync(brokeredMessage).ConfigureAwait(false);
         }
 
@@ -107,34 +100,42 @@ namespace MisCritAz.Messaging
         {
             void OnBreak(Exception exception, TimeSpan timespan)
             {
-                try
+                //recreate secondary sender
+                if (SecondaryClient == null)
                 {
-                    //kill primary sender
-                    PrimaryClient?.CloseAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-                    PrimaryClient = null;
+                    SecondaryClient = CreateClient(_secondaryServiceBusConnectionString);
                 }
-                catch (Exception ex)
-                {
-                    _logger?.LogInformation(ex, "Failed to close primary client from circuit breaker.");
-                }
-                _logger?.LogWarning(exception, "Switching from primary to secondary service bus sender");
+
+                //kill primary sender
+                PrimaryClient.CloseAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+                PrimaryClient = null;
+
+                _logger?.LogWarning(exception, "Switched from primary to secondary service bus sender");
             }
 
             void OnHalfOpen()
             {
-                _logger?.LogWarning("Circuit breaker to 'half open' to move back from secondary to primary service bus sender");
                 //recreate primary sender
-                Initialize().ConfigureAwait(false).GetAwaiter().GetResult();
+                if (PrimaryClient == null)
+                {
+                    PrimaryClient = CreateClient(_primaryServiceBusConnectionString);
+                }
+
+                //kill secondary
+                SecondaryClient.CloseAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+                SecondaryClient = null;
+
+                _logger?.LogWarning("Switched back from secondary to primary service bus sender");
             }
 
             void OnReset()
             {
-                _logger?.LogWarning("Switched back from secondary to primary service bus sender");
+                _logger?.LogInformation("Circuit breaker was reset.");
             }
 
             _circuitBreaker = Policy
                 .Handle<Exception>()
-                .CircuitBreakerAsync(ExceptionsAllowedBeforeBreaking, TimeSpan.FromMinutes(TimeOutIfBreaksInMinutes), OnBreak, OnReset, OnHalfOpen);
+                .CircuitBreakerAsync(ExceptionsAllowedBeforeBreaking, TimeSpan.FromMilliseconds(TimeOutIfBreaksInMilliseconds), OnBreak, OnReset, OnHalfOpen);
         }
 
         /// <summary>

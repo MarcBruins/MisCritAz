@@ -8,6 +8,7 @@ using System.Collections.Immutable;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
 
 namespace MisCritAz.Messaging
 {
@@ -34,21 +35,24 @@ namespace MisCritAz.Messaging
 
 
         /// <inheritdoc />
-        public MultiServiceBusMessageReceiver(ServiceBusConnectionSettings serviceBusConnectionSettings,
+        public MultiServiceBusMessageReceiver(IOptions<ServiceBusConnectionSettings> serviceBusConnectionSettings,
             IMemoryCache cache,
             ILogger<MultiServiceBusMessageReceiver> logger = null)
         {
-            if (string.IsNullOrWhiteSpace(_serviceBusSubscription))
-                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.ServiceBusSubscription)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
+            if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.Value.ServiceBusSubscription))
+                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.Value.ServiceBusSubscription)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
+            if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.Value.ServiceBusTopic))
+                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.Value.ServiceBusTopic)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
+            if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.Value.PrimaryServiceBusConnectionStringForSend))
+                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.Value.PrimaryServiceBusConnectionStringForSend)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
+            if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.Value.SecondaryServiceBusConnectionStringForSend))
+                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.Value.SecondaryServiceBusConnectionStringForSend)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
 
-            if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.ServiceBusTopic))
-                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.ServiceBusTopic)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
+            _primaryServiceBusConnectionString = serviceBusConnectionSettings.Value.PrimaryServiceBusConnectionStringForSend;
+            _secondaryServiceBusConnectionString = serviceBusConnectionSettings.Value.SecondaryServiceBusConnectionStringForSend;
 
-            _primaryServiceBusConnectionString = serviceBusConnectionSettings.PrimaryServiceBusConnectionStringForSend;
-            _secondaryServiceBusConnectionString = serviceBusConnectionSettings.SecondaryServiceBusConnectionStringForSend;
-
-            _serviceBusSubscription = serviceBusConnectionSettings.ServiceBusSubscription;
-            _serviceBusTopic = serviceBusConnectionSettings.ServiceBusTopic;
+            _serviceBusSubscription = serviceBusConnectionSettings.Value.ServiceBusSubscription;
+            _serviceBusTopic = serviceBusConnectionSettings.Value.ServiceBusTopic;
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger;
         }

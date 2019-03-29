@@ -7,6 +7,7 @@ using Polly.CircuitBreaker;
 using System;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
 
 namespace MisCritAz.Messaging
 {
@@ -30,18 +31,18 @@ namespace MisCritAz.Messaging
         /// <summary>
         /// Creates a new instance.
         /// </summary>
-        protected MultiServiceBusMessageSender(ServiceBusConnectionSettings serviceBusConnectionSettings, ILogger<MultiServiceBusMessageSender> logger = null)
+        public MultiServiceBusMessageSender(IOptions<ServiceBusConnectionSettings> serviceBusConnectionSettings, ILogger<MultiServiceBusMessageSender> logger = null)
         {
-            if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.PrimaryServiceBusConnectionStringForSend))
-                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.PrimaryServiceBusConnectionStringForSend)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
+            if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.Value.PrimaryServiceBusConnectionStringForSend))
+                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.Value.PrimaryServiceBusConnectionStringForSend)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
 
-            if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.ServiceBusTopic))
-                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.ServiceBusTopic)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
+            if (string.IsNullOrWhiteSpace(serviceBusConnectionSettings.Value.ServiceBusTopic))
+                throw new ArgumentException($"Configuration value '{nameof(serviceBusConnectionSettings.Value.ServiceBusTopic)}' cannot be null or whitespace.", nameof(serviceBusConnectionSettings));
             _logger = logger;
 
-            _primaryServiceBusConnectionString = serviceBusConnectionSettings.PrimaryServiceBusConnectionStringForSend;
-            _secondaryServiceBusConnectionString = serviceBusConnectionSettings.SecondaryServiceBusConnectionStringForSend;
-            _serviceBusTopic = serviceBusConnectionSettings.ServiceBusTopic;
+            _primaryServiceBusConnectionString = serviceBusConnectionSettings.Value.PrimaryServiceBusConnectionStringForSend;
+            _secondaryServiceBusConnectionString = serviceBusConnectionSettings.Value.SecondaryServiceBusConnectionStringForSend;
+            _serviceBusTopic = serviceBusConnectionSettings.Value.ServiceBusTopic;
 
             ConfigureCircuitBreaker();
         }
